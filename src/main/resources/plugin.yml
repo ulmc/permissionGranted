@@ -1,0 +1,15 @@
+name: PermissionGranted
+main: ru.ulmc.plugins.permissionGranted.PermissionGranted
+version: 0.1
+depend: [Vault]
+commands:
+   teachMe:
+      description: Get Some profession
+      usage: /<command> <permissionName>
+      permission: PermissionGranted.basic
+      permission-message: You don't have permission to get a permission
+   teachList:
+      description: Get Profession List
+      usage: /<command>
+      permission: PermissionGranted.basic
+      permission-message: You don't have permission to get a profession list
