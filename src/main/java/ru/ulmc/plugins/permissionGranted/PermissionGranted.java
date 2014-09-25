@@ -27,12 +27,14 @@ import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.Configuration;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import ru.ulmc.plugins.permissionGranted.model.Profession;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,10 +48,10 @@ import java.util.Map;
  */
 public class PermissionGranted extends JavaPlugin {
 	protected FileConfiguration config;
-	protected Map<String, Double> professions = new HashMap<>();
 	public static Economy econ = null;
 	public static Permission perms = null;
 	public static Chat chat = null;
+	public Map<String, Profession> professions = new HashMap<>();
 
 	@Override
 	public void onEnable() {
@@ -59,11 +61,8 @@ public class PermissionGranted extends JavaPlugin {
 			return;
 		}
 		setupPermissions();
-		setupChat();
+		//setupChat();
 		initConfig();
-		for(String key : config.getConfigurationSection("perm.group").getKeys(true)) {
-			professions.put(key, config.getConfigurationSection("perm.group").getDouble(key));
-		}
 		getLogger().info(getAvailableProfessions());
 	}
 
@@ -72,22 +71,36 @@ public class PermissionGranted extends JavaPlugin {
 		getLogger().info("PermissionGranted is Disabled");
 	}
 
+	@Override
 	public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-		if ("teachMe".equalsIgnoreCase(cmd.getName())) {
-			if (!(sender instanceof Player)) {
-				sender.sendMessage("This command can only be run by a player.");
-			} else {
-				if(args.length != 1) {
-					sender.sendMessage(config.getString("msg.wrong-arguments"));
-					return false;
-				}
-				return workWithPlayerCommand((Player) sender, args[0]);
+		if ("levelUp".equalsIgnoreCase(cmd.getName())) {
+			if(args.length == 0) {
+				sender.sendMessage(config.getString("msg.wrong-arguments"));
+				return false;
 			}
+			if (!(sender instanceof Player)) {
+				if("list".equals(args[0])) {
+					sender.sendMessage(getAvailableProfessions());
+					return true;
+				}
+			} else {
+				if("list".equals(args[0])) {
+					sender.sendMessage(getAvailableProfessions((Player) sender));
+					return true;
+				}
+				if(args.length == 2) {
+					if("get".equals(args[0])) {
+						String profession = args[1];
+						if("get".equals(args[1])) {
+							return workWithPlayerCommand((Player) sender, args[0]);
+						}
+					}
+				}
+			}
+			sender.sendMessage(config.getString("msg.wrong-arguments"));
 			return false;
-		} else if ("teachList".equalsIgnoreCase(cmd.getName())) {
-			getAvailableProfessions((Player) sender);
-			return true;
 		}
+
 		return false;
 	}
 
@@ -101,12 +114,12 @@ public class PermissionGranted extends JavaPlugin {
 			player.sendMessage(config.getString("msg.already-have"));
 			return false;
 		}
-		Double cost = professions.get(profession);
+		Double cost = professions.get(profession).getCost();
 		if(econ.has(player, cost)) {
 			econ.withdrawPlayer(player, cost);
-			if(econ.hasBankSupport() && config.getString("econony.bank-name") != null &&
-					config.getString("econony.bank-name").trim().isEmpty()) {
-				econ.bankDeposit(config.getString("econony.bank-name").trim(), cost);
+			if(econ.hasBankSupport() && config.getString("economy.bank-name") != null &&
+					config.getString("economy.bank-name").trim().isEmpty()) {
+				econ.bankDeposit(config.getString("economy.bank-name").trim(), cost);
 			}
 			perms.playerAddGroup(player, profession);
 			getLogger().info("PG TEACH: " + player.getName() + " for " + cost + " on " + profession);
@@ -119,7 +132,7 @@ public class PermissionGranted extends JavaPlugin {
 	protected String getAvailableProfessions() {
 		String groups = config.getString("msg.avail-groups");
 		for(String key : professions.keySet()) {
-			groups += key + " (" + professions.get(key) + "); ";
+			groups += "(" + professions.get(key).printString() + "); ";
 		}
 		return groups;
 	}
@@ -128,7 +141,7 @@ public class PermissionGranted extends JavaPlugin {
 		String groups = config.getString("msg.avail-groups");
 		double mltplr = getMultiplier(player);
 		for(String key : professions.keySet()) {
-			groups += key + " (" + Math.floor(professions.get(key) * mltplr) + "); ";
+			groups += key + " (" + Math.floor(professions.get(key).getCost() * mltplr) + "); ";
 		}
 		return groups;
 	}
@@ -182,7 +195,7 @@ public class PermissionGranted extends JavaPlugin {
 
 	protected void initConfig() {
 		config = getConfig();
-		config.addDefault("msg.wrong-arguments", "Неправильная комманда!");
+		config.addDefault("msg.wrong-arguments", "Неправильная команда!");
 		config.addDefault("msg.wrong-profession", "Не могу этому научить!");
 		config.addDefault("msg.avail-groups", "Доступны для изучения: ");
 		config.addDefault("msg.already-have", "Уже изучено! ");
@@ -191,16 +204,30 @@ public class PermissionGranted extends JavaPlugin {
 		config.addDefault("multiplier.third", 2.5d);
 		config.addDefault("multiplier.fourth", 4.5d);
 		config.addDefault("multiplier.fifth", 6.0d);
-		config.addDefault("econony.bank-name", " ");
-
-		Map<String, Object> example = new HashMap<>();
-		example.put("perm.group.lj", 1000.0D);
-		example.put("perm.group.bs", 1500.0D);
-		example.put("perm.group.en", 1800.0D);
-		example.put("perm.group.exp-bs", 1900.0D);
-
-		config.addDefaults(example);
+		config.addDefault("economy.bank-name", " ");
 		config.options().copyDefaults(true);
 		saveConfig();
+
+		for(String key : config.getConfigurationSection("groups").getKeys(false)) { // ways
+			ConfigurationSection cs = config.getConfigurationSection("groups").getConfigurationSection(key);
+			for(String profName : cs.getKeys(false)) { //profs
+				Profession prof = new Profession();
+				prof.setWay(key);
+				prof.setName(profName);
+				ConfigurationSection profSection = cs.getConfigurationSection(profName);
+				for(String field : profSection.getKeys(false)) {
+					if("description".equals(field)) {
+						prof.setDescription(profSection.getString(field));
+					} else if("cost".equals(field)) {
+						prof.setCost(profSection.getDouble(field));
+					} else if("opposites".equals(field)) {
+						prof.setOpposites(profSection.getStringList(field));
+					} else if("rudiments".equals(field)) {
+						prof.setRudiments(profSection.getStringList(field));
+					}
+				}
+				professions.put(profName, prof);
+			}
+		}
 	}
 }
