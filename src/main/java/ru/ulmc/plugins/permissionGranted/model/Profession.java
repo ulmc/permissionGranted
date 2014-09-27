@@ -35,6 +35,7 @@ public class Profession implements Serializable {
 	private Double cost;
 	private List<String> rudiments;
 	private List<String> opposites;
+	private List<String> required;
 
 	public Profession() {
 	}
@@ -85,6 +86,14 @@ public class Profession implements Serializable {
 
 	public void setCost(Double cost) {
 		this.cost = cost;
+	}
+
+	public List<String> getRequired() {
+		return required;
+	}
+
+	public void setRequired(List<String> required) {
+		this.required = required;
 	}
 
 	public String printString() {

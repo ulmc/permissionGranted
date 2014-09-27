@@ -32,6 +32,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import ru.ulmc.plugins.permissionGranted.commands.ForgetCommand;
+import ru.ulmc.plugins.permissionGranted.commands.GetCommand;
+import ru.ulmc.plugins.permissionGranted.commands.InfoCommand;
+import ru.ulmc.plugins.permissionGranted.commands.ListCommand;
 import ru.ulmc.plugins.permissionGranted.model.Profession;
 
 import java.util.ArrayList;
@@ -47,11 +51,6 @@ import java.util.Map;
  *
  */
 public class PermissionGranted extends JavaPlugin {
-	protected FileConfiguration config;
-	public static Economy econ = null;
-	public static Permission perms = null;
-	public static Chat chat = null;
-	public Map<String, Profession> professions = new HashMap<>();
 
 	@Override
 	public void onEnable() {
@@ -61,9 +60,9 @@ public class PermissionGranted extends JavaPlugin {
 			return;
 		}
 		setupPermissions();
-		//setupChat();
+		setupChat();
 		initConfig();
-		getLogger().info(getAvailableProfessions());
+		initCommands();
 	}
 
 	@Override
@@ -71,102 +70,83 @@ public class PermissionGranted extends JavaPlugin {
 		getLogger().info("PermissionGranted is Disabled");
 	}
 
+	public void initCommands() {
+		R.commands.put(GetCommand.getCommandName(), new GetCommand());
+		R.commands.put(ListCommand.getCommandName(), new ListCommand());
+		R.commands.put(InfoCommand.getCommandName(), new InfoCommand());
+		R.commands.put(ForgetCommand.getCommandName(), new ForgetCommand());
+	}
+
 	@Override
 	public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
 		if ("levelUp".equalsIgnoreCase(cmd.getName())) {
-			if(args.length == 0) {
-				sender.sendMessage(config.getString("msg.wrong-arguments"));
-				return false;
+			if(args.length >= 1 && R.commands.containsKey(args[0].toLowerCase())) {
+				getLogger().info(R.commands.get(args[0].toLowerCase()).toString());
+				return R.commands.get(args[0].toLowerCase()).onCommand(sender, cmd, label, args);
 			}
-			if (!(sender instanceof Player)) {
-				if("list".equals(args[0])) {
-					sender.sendMessage(getAvailableProfessions());
-					return true;
-				}
-			} else {
-				if("list".equals(args[0])) {
-					sender.sendMessage(getAvailableProfessions((Player) sender));
-					return true;
-				}
-				if(args.length == 2) {
-					if("get".equals(args[0])) {
-						String profession = args[1];
-						if("get".equals(args[1])) {
-							return workWithPlayerCommand((Player) sender, args[0]);
+			return false;
+		}
+
+		return false;
+	}
+
+	protected void initConfig() {
+		R.config = getConfig();
+		R.config.addDefault(R.MSG_WRONG_ARGUMENTS, "Неправильная команда!");
+		R.config.addDefault(R.MSG_WRONG_PROFESSION, "Не могу этому научить!");
+		R.config.addDefault(R.MSG_GROUPS_AVAILABLE, "Доступны для изучения: ");
+		R.config.addDefault(R.MSG_ALREADY_HAVE, "Уже изучено! ");
+		R.config.addDefault(R.MSG_MISSED_REQUIREMENT, "Невозможно получить профессию — не хватает след. знаний: ");
+		R.config.addDefault(R.MSG_OPPOSITES_FOUND, "Невозможно получить профессию — найдены конфликты: ");
+		R.config.addDefault(R.MSG_FOUNDS_INSUFFICIENCY, "Недостаточно средств!");
+		R.config.addDefault(R.MSG_YOU_DONT_HAVE_ANY, "Нет ни одной группы!");
+		R.config.addDefault(R.MSG_YOU_HAVE, "Есть следующие группы: ");
+		R.config.addDefault(R.MSG_LEVEL_UPPED, "Получены новые знания! ");
+		R.config.addDefault(R.MSG_FORGOTTEN, "Знания забыты! ");
+		R.config.addDefault(R.MSG_ERROR, "Произошла ошибка! ");
+		R.config.addDefault(R.PARAM_PER_GROUP_MULTIPLIER, 1);
+		R.config.addDefault(R.PARAM_PER_WAY_MULTIPLIER, 1);
+		R.config.addDefault(R.PARAM_MAX_WAYS, 2);
+		R.config.addDefault(R.PARAM_FORGET_INTERNAL_ONLY, true);
+		//R.config.addDefault("economy.bank-name", " ");
+
+		if(R.config.getConfigurationSection(R.PARAM_GROUPS) == null) {
+			R.config.addDefault(R.PARAM_GROUPS + ".sampleWay.sampleGroup." + R.PARAM_GROUP_DESCRIPTION, "desc here");
+			R.config.addDefault(R.PARAM_GROUPS + ".sampleWay.sampleGroup." + R.PARAM_GROUP_COST, 0.1d);
+			R.config.addDefault(R.PARAM_GROUPS + ".sampleWay.sampleGroup." + R.PARAM_GROUP_REQUIRED, new ArrayList<String>());
+			R.config.addDefault(R.PARAM_GROUPS + ".sampleWay.sampleGroup." + R.PARAM_GROUP_OPPOSITES, new ArrayList<String>());
+			R.config.addDefault(R.PARAM_GROUPS + ".sampleWay.sampleGroup." + R.PARAM_GROUP_RUDIMENTS, new ArrayList<String>());
+			getLogger().warning("No groups detected! Nothing to do =(");
+		} else {
+			for(String key : R.config.getConfigurationSection(R.PARAM_GROUPS).getKeys(false)) { // ways
+				ConfigurationSection cs = R.config.getConfigurationSection(R.PARAM_GROUPS).getConfigurationSection(key);
+				for(String profName : cs.getKeys(false)) { //profs
+					Profession prof = new Profession();
+					prof.setWay(key);
+					prof.setName(profName);
+					ConfigurationSection profSection = cs.getConfigurationSection(profName);
+					for(String field : profSection.getKeys(false)) {
+						if(R.PARAM_GROUP_DESCRIPTION.equals(field)) {
+							prof.setDescription(profSection.getString(field));
+						} else if(R.PARAM_GROUP_COST.equals(field)) {
+							prof.setCost(profSection.getDouble(field));
+						} else if(R.PARAM_GROUP_OPPOSITES.equals(field)) {
+							prof.setOpposites(profSection.getStringList(field));
+						} else if(R.PARAM_GROUP_RUDIMENTS.equals(field)) {
+							prof.setRudiments(profSection.getStringList(field));
+						} else if(R.PARAM_GROUP_REQUIRED.equals(field)) {
+							prof.setRequired(profSection.getStringList(field));
 						}
 					}
+					R.professions.put(profName, prof);
 				}
 			}
-			sender.sendMessage(config.getString("msg.wrong-arguments"));
-			return false;
 		}
 
-		return false;
-	}
+		R.MAX_WAYS = R.config.getInt(R.PARAM_MAX_WAYS);
 
-	protected boolean workWithPlayerCommand(Player player, String profession) {
-		if(profession == null || !professions.containsKey(profession)) {
-			player.sendMessage(config.getString("msg.wrong-profession"));
-			player.sendMessage(getAvailableProfessions(player));
-			return false;
-		}
-		if(perms.playerInGroup(player, profession)) {
-			player.sendMessage(config.getString("msg.already-have"));
-			return false;
-		}
-		Double cost = professions.get(profession).getCost();
-		if(econ.has(player, cost)) {
-			econ.withdrawPlayer(player, cost);
-			if(econ.hasBankSupport() && config.getString("economy.bank-name") != null &&
-					config.getString("economy.bank-name").trim().isEmpty()) {
-				econ.bankDeposit(config.getString("economy.bank-name").trim(), cost);
-			}
-			perms.playerAddGroup(player, profession);
-			getLogger().info("PG TEACH: " + player.getName() + " for " + cost + " on " + profession);
-			return true;
-		}
-
-		return false;
-	}
-
-	protected String getAvailableProfessions() {
-		String groups = config.getString("msg.avail-groups");
-		for(String key : professions.keySet()) {
-			groups += "(" + professions.get(key).printString() + "); ";
-		}
-		return groups;
-	}
-
-	protected String getAvailableProfessions(Player player) {
-		String groups = config.getString("msg.avail-groups");
-		double mltplr = getMultiplier(player);
-		for(String key : professions.keySet()) {
-			groups += key + " (" + Math.floor(professions.get(key).getCost() * mltplr) + "); ";
-		}
-		return groups;
-	}
-
-	protected double getMultiplier(Player player) {
-		int count = 0;
-		for(String prof : professions.keySet()) {
-			if(perms.playerInGroup(player, prof)) {
-				count++;
-			}
-		}
-		switch (count) {
-			case 1:
-				return config.getDouble("multiplier.first");
-			case 2:
-				return config.getDouble("multiplier.second");
-			case 3:
-				return config.getDouble("multiplier.third");
-			case 4:
-				return config.getDouble("multiplier.fourth");
-			case 5:
-				return config.getDouble("multiplier.fifth");
-			default:
-				return 9999;
-		}
+		R.config.options().copyDefaults(true);
+		saveConfig();
 	}
 
 	private boolean setupEconomy() {
@@ -177,57 +157,19 @@ public class PermissionGranted extends JavaPlugin {
 		if (rsp == null) {
 			return false;
 		}
-		econ = rsp.getProvider();
-		return econ != null;
+		R.econ = rsp.getProvider();
+		return R.econ != null;
 	}
 
 	private boolean setupChat() {
 		RegisteredServiceProvider<Chat> rsp = getServer().getServicesManager().getRegistration(Chat.class);
-		chat = rsp.getProvider();
-		return chat != null;
+		R.chat = rsp.getProvider();
+		return R.chat != null;
 	}
 
 	private boolean setupPermissions() {
 		RegisteredServiceProvider<Permission> rsp = getServer().getServicesManager().getRegistration(Permission.class);
-		perms = rsp.getProvider();
-		return perms != null;
-	}
-
-	protected void initConfig() {
-		config = getConfig();
-		config.addDefault("msg.wrong-arguments", "Неправильная команда!");
-		config.addDefault("msg.wrong-profession", "Не могу этому научить!");
-		config.addDefault("msg.avail-groups", "Доступны для изучения: ");
-		config.addDefault("msg.already-have", "Уже изучено! ");
-		config.addDefault("multiplier.first", 1.0d);
-		config.addDefault("multiplier.second", 1.5d);
-		config.addDefault("multiplier.third", 2.5d);
-		config.addDefault("multiplier.fourth", 4.5d);
-		config.addDefault("multiplier.fifth", 6.0d);
-		config.addDefault("economy.bank-name", " ");
-		config.options().copyDefaults(true);
-		saveConfig();
-
-		for(String key : config.getConfigurationSection("groups").getKeys(false)) { // ways
-			ConfigurationSection cs = config.getConfigurationSection("groups").getConfigurationSection(key);
-			for(String profName : cs.getKeys(false)) { //profs
-				Profession prof = new Profession();
-				prof.setWay(key);
-				prof.setName(profName);
-				ConfigurationSection profSection = cs.getConfigurationSection(profName);
-				for(String field : profSection.getKeys(false)) {
-					if("description".equals(field)) {
-						prof.setDescription(profSection.getString(field));
-					} else if("cost".equals(field)) {
-						prof.setCost(profSection.getDouble(field));
-					} else if("opposites".equals(field)) {
-						prof.setOpposites(profSection.getStringList(field));
-					} else if("rudiments".equals(field)) {
-						prof.setRudiments(profSection.getStringList(field));
-					}
-				}
-				professions.put(profName, prof);
-			}
-		}
+		R.perms = rsp.getProvider();
+		return R.perms != null;
 	}
 }
